@@ -9,6 +9,10 @@
   },
   "author": "Max Poliakov",
   "license": "ISC",
+  "engines": {
+    "node": "12.16.2",
+    "npm": "6.4.1"
+  },
   "dependencies": {
     "axios": "0.19.2",
     "express": "4.17.1"
