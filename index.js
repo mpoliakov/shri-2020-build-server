@@ -24,7 +24,7 @@ server.post(`/notify-build-result`, async (req, res) => {
     stderr
   } = req.body;
 
-  const value = agentManager.free(buildId);
+  const value = agentManager.dismissBuild(buildId);
 
   await backendAPI.finishBuild({
     buildId,
@@ -32,6 +32,8 @@ server.post(`/notify-build-result`, async (req, res) => {
     success: status === `Success`,
     buildLog: stdout || stderr
   });
+
+  console.log('Finished build:', buildId);
 
   return res.status(200).end();
 });
@@ -42,9 +44,8 @@ server.listen(conf.port, () => {
   setTimeout(async function tick() {
     try {
       await checkBuildQueue();
-      // console.log(`Available build agents:`, agentManager._agents);
     } catch (e) {
-      console.log(`Error:`, e.message);
+      console.log(`Error:`, e);
     }
 
     setTimeout(tick, 5000);
@@ -55,32 +56,41 @@ const checkBuildQueue = async () => {
   const agentUrl = agentManager.getFreeAgent();
 
   if (!agentUrl) {
-    console.log(`There are no available build agents.`);
     return;
   }
 
   const settings = await backendAPI.getSettings();
-  const builds = await backendAPI.getBuildList();
+  const builds = await backendAPI.getBuilds();
 
   if (!builds || !settings) {
     return;
   }
 
-  const waitingBuilds = builds.filter((b) => b.status === `Waiting`);
+  const buildsInQueue = builds.filter((b) => b.status === `Waiting`).reverse();
 
-  if (!waitingBuilds.length) {
-    console.log(`Build queue is empty.`)
+  console.log(`Builds in queue = ${buildsInQueue.length} | ${agentManager.getOverview()}`);
+
+  if (!buildsInQueue.length) {
     return;
   }
 
-  const build = waitingBuilds[waitingBuilds.length - 1];
+  const build = buildsInQueue[0];
 
-  const buildAgentApi = axios.create({
-    baseURL: agentUrl,
-    timeout: 5000
-  });
+  console.log('Processing build:', build.id);
 
   try {
+    const value = agentManager.assignBuild(agentUrl, build.id);
+
+    await backendAPI.startBuild({
+      buildId: build.id,
+      dateTime: value.start
+    });
+
+    const buildAgentApi = axios.create({
+      baseURL: agentUrl,
+      timeout: 10000
+    });
+
     await buildAgentApi.post(`/build`, {
       buildId: build.id,
       repoUrl: `git@github.com:${settings.repoName}.git`,
@@ -88,13 +98,25 @@ const checkBuildQueue = async () => {
       buildCommand: settings.buildCommand
     });
 
-    const value = agentManager.busy(agentUrl, build.id);
+    console.log(`Builds in queue = ${buildsInQueue.length - 1} | ${agentManager.getOverview()}`);
+  } catch (err) {
+    let log;
 
-    await backendAPI.startBuild({
+    if (err.response && err.response.status === 400) {
+      log = err.response.data;
+      agentManager.dismissBuild(build.id);
+    } else {
+      log = err.message;
+      agentManager.delete(agentUrl);
+    }
+
+    await backendAPI.finishBuild({
       buildId: build.id,
-      dateTime: value.start
+      duration: 0,
+      success: false,
+      buildLog: log
     });
-  } catch {
-    agentManager.unregister(agentUrl);
+
+    console.log('Finished build:', build.id);
   }
 };

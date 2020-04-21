@@ -2,10 +2,10 @@
   "name": "shri-2020-build-server",
   "version": "1.0.0",
   "description": "",
-  "main": "build-server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node build-server.js",
-    "dev": "nodemon build-server.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "author": "Max Poliakov",
   "license": "ISC",
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "axios": "0.19.2",
+    "axios-retry": "3.1.5",
     "express": "4.17.1"
   },
   "devDependencies": {

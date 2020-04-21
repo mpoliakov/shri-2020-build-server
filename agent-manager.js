@@ -14,20 +14,11 @@ class AgentManager {
     }
   }
 
-  unregister(url) {
+  delete(url) {
     this._agents.delete(url);
   }
 
-  free(buildId) {
-    for (let [key, value] of this._agents) {
-      if (value && value.buildId === buildId) {
-        this._agents.set(key, null);
-        return value;
-      }
-    }
-  }
-
-  busy(url, buildId) {
+  assignBuild(url, buildId) {
     const value = {
       buildId,
       start: new Date().toISOString()
@@ -35,6 +26,15 @@ class AgentManager {
 
     this._agents.set(url, value);
     return value;
+  }
+
+  dismissBuild(buildId) {
+    for (let [key, value] of this._agents) {
+      if (value && value.buildId === buildId) {
+        this._agents.set(key, null);
+        return value;
+      }
+    }
   }
 
   getFreeAgent() {
@@ -52,6 +52,22 @@ class AgentManager {
 
     const randomIndex = Math.floor(freeAgentUrls.length * Math.random());
     return  freeAgentUrls[randomIndex];
+  }
+
+  getOverview() {
+    const freeAgents = [];
+    const busyAgents = [];
+
+    for (let [key, value] of this._agents) {
+      if (value) {
+        busyAgents.push(key);
+      }
+      else {
+        freeAgents.push(key);
+      }
+    }
+
+    return `Free agents = ${freeAgents.length} | Busy agents = ${busyAgents.length}`;
   }
 }
 
