@@ -43,7 +43,7 @@ class BackendAPI {
         };
 
         const res = await this._api.get(Routes.BUILD_LIST, {params});
-        return res.data;
+        return res.data.filter((build) => build.status === `Waiting`).reverse();
     }
 
     async startBuild(startInfo) {

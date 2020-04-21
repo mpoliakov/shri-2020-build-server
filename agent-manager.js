@@ -3,14 +3,12 @@ class AgentManager {
     this._agents = new Map();
   }
 
-  register(host, port) {
-    const url = `${host}:${port}`;
-
+  register(url) {
     if (this._agents.has(url)) {
-      return `Build agent ${url} is already registered.`;
+      return false;
     } else {
       this._agents.set(url, null);
-      return `Build agent ${url} was successfully registered.`;
+      return true;
     }
   }
 
@@ -54,7 +52,7 @@ class AgentManager {
     return  freeAgentUrls[randomIndex];
   }
 
-  getOverview() {
+  getStatus() {
     const freeAgents = [];
     const busyAgents = [];
 

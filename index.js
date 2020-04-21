@@ -4,16 +4,25 @@ const axios = require('axios');
 const conf = require('./server-conf');
 const BackendAPI = require('./backend-api');
 const AgentManager = require('./agent-manager');
+const {log} = require('./utils');
 
 const backendAPI = new BackendAPI(conf.apiBaseUrl, conf.apiToken);
-const agentManager = new AgentManager();
+
+const state = {
+  settings: null,
+  buildQueue: [],
+  agents: new AgentManager()
+};
 
 const server = express();
 server.use(express.json());
 
 server.post(`/notify-agent`, async (req, res) => {
-  const message = agentManager.register(req.body.host, req.body.port);
-  return res.status(200).json(message);
+  const url = `${req.body.host}:${req.body.port}`;
+  if (state.agents.register(url)) {
+    log(state, `Build agent ${url} was successfully registered.`);
+  }
+  return res.status(200).end();
 });
 
 server.post(`/notify-build-result`, async (req, res) => {
@@ -24,7 +33,7 @@ server.post(`/notify-build-result`, async (req, res) => {
     stderr
   } = req.body;
 
-  const value = agentManager.dismissBuild(buildId);
+  const value = state.agents.dismissBuild(buildId);
 
   await backendAPI.finishBuild({
     buildId,
@@ -33,13 +42,15 @@ server.post(`/notify-build-result`, async (req, res) => {
     buildLog: stdout || stderr
   });
 
-  console.log('Finished build:', buildId);
+  log(state, `Finished build [${build.id}].`);
 
   return res.status(200).end();
 });
 
-server.listen(conf.port, () => {
+server.listen(conf.port, async () => {
   console.log(`Build server is listening port ${conf.port}...`);
+
+  state.settings = await backendAPI.getSettings();
 
   setTimeout(async function tick() {
     try {
@@ -53,34 +64,31 @@ server.listen(conf.port, () => {
 });
 
 const checkBuildQueue = async () => {
-  const agentUrl = agentManager.getFreeAgent();
+  const agentUrl = state.agents.getFreeAgent();
 
   if (!agentUrl) {
     return;
   }
 
-  const settings = await backendAPI.getSettings();
-  const builds = await backendAPI.getBuilds();
+  if (!state.buildQueue.length) {
+    const builds = await backendAPI.getBuilds();
+    state.buildQueue.push(...builds);
+    if (state.buildQueue.length) {
+      log(state, `Fetched builds from database.`);
+    }
+  }
 
-  if (!builds || !settings) {
+  if (!state.buildQueue.length) {
     return;
   }
 
-  const buildsInQueue = builds.filter((b) => b.status === `Waiting`).reverse();
+  const build = state.buildQueue.shift();
 
-  console.log(`Builds in queue = ${buildsInQueue.length} | ${agentManager.getOverview()}`);
+  const value = state.agents.assignBuild(agentUrl, build.id);
 
-  if (!buildsInQueue.length) {
-    return;
-  }
-
-  const build = buildsInQueue[0];
-
-  console.log('Processing build:', build.id);
+  log(state, `Processing build [${build.id}] on build agent ${agentUrl}...`);
 
   try {
-    const value = agentManager.assignBuild(agentUrl, build.id);
-
     await backendAPI.startBuild({
       buildId: build.id,
       dateTime: value.start
@@ -93,30 +101,28 @@ const checkBuildQueue = async () => {
 
     await buildAgentApi.post(`/build`, {
       buildId: build.id,
-      repoUrl: `git@github.com:${settings.repoName}.git`,
+      repoUrl: `git@github.com:${state.settings.repoName}.git`,
       commitHash: build.commitHash,
-      buildCommand: settings.buildCommand
+      buildCommand: state.settings.buildCommand
     });
-
-    console.log(`Builds in queue = ${buildsInQueue.length - 1} | ${agentManager.getOverview()}`);
   } catch (err) {
-    let log;
+    let message;
 
     if (err.response && err.response.status === 400) {
-      log = err.response.data;
-      agentManager.dismissBuild(build.id);
+      message = err.response.data;
+      state.agents.dismissBuild(build.id);
     } else {
-      log = err.message;
-      agentManager.delete(agentUrl);
+      message = err.message;
+      state.agents.delete(agentUrl);
     }
 
     await backendAPI.finishBuild({
       buildId: build.id,
       duration: 0,
       success: false,
-      buildLog: log
+      buildLog: message
     });
 
-    console.log('Finished build:', build.id);
+    log(state, `Finished build [${build.id}].`);
   }
 };
