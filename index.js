@@ -42,7 +42,7 @@ server.post(`/notify-build-result`, async (req, res) => {
     buildLog: stdout || stderr
   });
 
-  log(state, `Finished build [${build.id}].`);
+  log(state, `Finished build [${buildId}].`);
 
   return res.status(200).end();
 });
